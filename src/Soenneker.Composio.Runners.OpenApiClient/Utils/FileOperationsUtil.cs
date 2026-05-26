@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Kiota.Util.Abstract;
+using Soenneker.OpenApi.Fixer.Abstract;
 using Soenneker.Utils.Directory.Abstract;
 using Soenneker.Utils.File.Abstract;
 using Soenneker.Utils.File.Download.Abstract;
@@ -27,18 +28,20 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
     private readonly IGitUtil _gitUtil;
     private readonly IDotnetUtil _dotnetUtil;
     private readonly IKiotaUtil _kiotaUtil;
+    private readonly IOpenApiFixer _openApiFixer;
     private readonly IFileDownloadUtil _fileDownloadUtil;
     private readonly IFileUtil _fileUtil;
     private readonly IDirectoryUtil _directoryUtil;
 
     public FileOperationsUtil(ILogger<FileOperationsUtil> logger, IConfiguration configuration, IGitUtil gitUtil, IDotnetUtil dotnetUtil,
-        IFileDownloadUtil fileDownloadUtil, IFileUtil fileUtil, IDirectoryUtil directoryUtil, IKiotaUtil kiotaUtil)
+        IFileDownloadUtil fileDownloadUtil, IFileUtil fileUtil, IDirectoryUtil directoryUtil, IKiotaUtil kiotaUtil, IOpenApiFixer openApiFixer)
     {
         _logger = logger;
         _configuration = configuration;
         _gitUtil = gitUtil;
         _dotnetUtil = dotnetUtil;
         _kiotaUtil = kiotaUtil;
+        _openApiFixer = openApiFixer;
         _fileDownloadUtil = fileDownloadUtil;
         _fileUtil = fileUtil;
         _directoryUtil = directoryUtil;
@@ -50,12 +53,16 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
 
         string targetFilePath = Path.Combine(gitDirectory, "openapi.json");
 
+        string fixedFilePath = Path.Combine(gitDirectory, "fixed.json");
+
         await _fileUtil.DeleteIfExists(targetFilePath, cancellationToken: cancellationToken);
 
         string openApiDocumentUrl = _configuration["Composio:ClientGenerationUrl"] ?? "https://backend.composio.dev/api/v3/openapi.json";
 
         string? filePath = await _fileDownloadUtil.Download(openApiDocumentUrl,
             targetFilePath, fileExtension: ".json", cancellationToken: cancellationToken);
+        await _openApiFixer.Fix(targetFilePath, fixedFilePath, cancellationToken);
+
 
         await _kiotaUtil.EnsureInstalled(cancellationToken);
 
@@ -63,7 +70,7 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
 
         await DeleteAllExceptCsproj(srcDirectory, cancellationToken);
 
-        await _kiotaUtil.Generate(filePath, "ComposioOpenApiClient", Constants.Library, gitDirectory, cancellationToken).NoSync();
+        await _kiotaUtil.Generate(fixedFilePath, "ComposioOpenApiClient", Constants.Library, gitDirectory, cancellationToken).NoSync();
 
         await BuildAndPush(gitDirectory, cancellationToken).NoSync();
     }
